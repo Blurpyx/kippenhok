@@ -5,96 +5,88 @@
 #define LDR A0
 #define button 7
 // Stepper
-#define dirPin 11
-#define stepPin 12
+#define dirPin 1
+#define stepPin 11
 #define enPin 5
-
+#define motorInterfaceType 1
 #define isOpen 2
 #define isClosed 3
 
+#define stepsOpen 2000
+
 bool overrideState = false;
+
 bool lastBtnState = false;
 bool currBtnState = false;
 
-bool opened = false;
+bool btnOpen = false;
+bool btnClosed = false;
 
 int value = 0;
-int stSp = 80;
-int mxSp = stSp * 10;
 
-#define motorInterfaceType 1
 AccelStepper stepper = AccelStepper(motorInterfaceType, stepPin, dirPin);
 
 void setup() {
   Serial.begin(9600);
   pinMode(button, INPUT);
   pinMode(enPin, OUTPUT);
-  attachInterrupt(digitalPinToInterrupt(isOpen), CloseUp, RISING);
-  attachInterrupt(digitalPinToInterrupt(isClosed), CloseCl, RISING);
-  
-  /*attachInterrupt(digitalPinToInterrupt(isOpen), StepUp, FALLING);
-  attachInterrupt(digitalPinToInterrupt(isClosed), StepCl, FALLING);*/
 
   currBtnState = digitalRead(button);
   
-  stepper.setMaxSpeed(mxSp);
-  stepper.setSpeed(stSp);
+  stepper.setMaxSpeed(60);
+  stepper.setAcceleration(20);
   digitalWrite(enPin, LOW);
 }
 
-void CloseUp() {
-  if(!opened && digitalRead(isOpen)) {
-    opened = true;
-    stepper.stop();
-  }
-}
-
-void CloseCl() {
-  if(opened && digitalRead(isClosed)) {
-    opened = false;
-    stepper.stop();
-  }
-}
-void OpenGate() {
-  // Open gate
-  stepper.setSpeed(stSp);
-  while(!opened) stepper.runSpeed();
-}
-void CloseGate() {
-  // Close gate
-  stepper.setSpeed(-stSp);
-  while(opened) stepper.runSpeed();
-}
-/*
-void StepUp() {
-  stepper.stop();
-  stepper.setSpeed(stSp);
-  while(!opened) {
-    stepper.runSpeed();
-  }
-}
-
-void StepCl() {
-  stepper.stop();
-  stepper.setSpeed(-stSp);
-  while(opened) {
-    stepper.runSpeed();
-  }
-}
-*/
 void loop() {
-  Serial.println();Serial.println();Serial.println();Serial.println();Serial.println();Serial.println();Serial.println();Serial.println();Serial.println();Serial.println();
+  Serial.println();Serial.println();Serial.println();Serial.println();Serial.println();Serial.println();Serial.println();Serial.println();
   Serial.println("----------------------------------------------------------------------------");
   currBtnState = digitalRead(button);
-  Serial.print("currBtnState ");
+  btnOpen = digitalRead(isOpen);
+  btnClosed = digitalRead(isClosed);
+  Serial.println("Buttons:");
+  Serial.print("  - Master button: ");
+  Serial.println(currBtnState ? "pressed" : "not pressed");
+  Serial.print("  - End-switch open: ");
+  Serial.println(btnOpen ? "pressed" : "not pressed");
+  Serial.print("  - End-switch closed: ");
   Serial.println(currBtnState ? "pressed" : "not pressed");
   Serial.print("overrideState ");
-  Serial.println(overrideState ? "enabled" : "disabled");
-  
+  Serial.println(overrideState ? "active" : "disabled");
+
   if (!overrideState) {
     value = analogRead(LDR);
     Serial.print("Analog value: ");
     Serial.println(value);
+
+    // Als motor nog geen bestemming heeft
+    if (stepper.distanceToGo() == 0) {
+      // Veronderstel dat poort gesloten is bij opstart
+      if (btnClosed && !btnOpen) {
+        // Poort gesloten
+        if (value <= 1010) {
+          // Licht
+          stepper.moveTo(stepsOpen);
+        } else {
+          // Donker
+          stepper.moveTo(-stepsOpen);
+        }
+      } else if (btnOpen && !btnClosed) {
+        // Poort open
+        if (value <= 1010) {
+          // Licht
+          stepper.moveTo(stepsOpen);
+        } else {
+          // Donker
+          stepper.moveTo(-stepsOpen);
+        }
+      }
+    }
+  }
+  
+  if (stepper.currentPosition() == stepsOpen) {
+    stepper.setCurrentPosition(0);
+    stepper.moveTo(0);
   }
 
   if (currBtnState != lastBtnState) {
@@ -103,24 +95,19 @@ void loop() {
       Serial.print("Button Pressed! overrideState ");
       overrideState = !overrideState;
       Serial.println(overrideState ? "enabled" : "disabled");
-      // Open gate
-      if(!opened) OpenGate();
-      // Close gate
-      if(opened) CloseGate();
-      
+      // Toggle Gate
+      if (btnClosed) {
+        // If closed then open
+        stepper.moveTo(stepsOpen);
+      }
+      else {
+        // If not closed then close
+        stepper.moveTo(-stepsOpen);
+      }
     }
   }
-
-  if (!overrideState) {
-    if (!opened && (value < 300)) {
-      // Open gate
-      while(!opened) stepper.setSpeed(stSp); stepper.runSpeed(); 
-    }
-    else if (value > 300) {
-      // Close gate
-      while(opened) stepper.setSpeed(-stSp); stepper.runSpeed();
-    }
+  while (stepper.distanceToGo() != 0) {
+    stepper.run(); 
+    // delay(500);
   }
-
-  //delay(500);
 }
